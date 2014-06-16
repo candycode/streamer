@@ -1,0 +1,3 @@
+[submodule "websocketplus"]
+	path = websocketplus
+	url = https://github.com/candycode/websocketsplus.git
