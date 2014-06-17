@@ -11,6 +11,9 @@
 #include <fstream>
 #include <chrono>
 
+#include "../websocketplus/src/WebSocketService.h"
+#include "../websocketplus/src/Context.h"
+
 using namespace std;
 
 //------------------------------------------------------------------------------
@@ -83,7 +86,8 @@ void ReadFileService(string path,
                      string prefix,
                      int startFrame,
                      const string& suffix,
-                     bool& stopService,
+                     const bool& startService, 
+                     const bool& stopService,
                      SessionQueues& q) {
     if(path.size() < 1) throw logic_error("Invalid  path size");
     if(path[path.size()-1] != '/') path += '/';
@@ -91,6 +95,7 @@ void ReadFileService(string path,
     int retries = 5;//@todo: make it a parameter; use negative (-1) for infinite
     int throttleInterval = 1;
     int retryInterval = 2;
+    while(!startService); //wait for a start request
     while(!stopService && retries != 0) {
         const string fname = prefix + to_string(startFrame) + suffix;
         ifstream in(fname, std::ifstream::in
@@ -113,26 +118,43 @@ void ReadFileService(string path,
 }
 //------------------------------------------------------------------------------
 int main(int argc, char** argv) {
-    if(argc != 5) {
+    if(argc != 6) {
         std::cout << "usage: " 
                   << argv[0]
-                  << " <path> <prefix> <start frame #> <suffix>\n";
+                  << " <path> <prefix> <start frame #> <suffix> <port>\n";
         return 1;
     }
     const string path = argv[1];
     const string prefix = argv[2];
     const string suffix = argv[4];
     const int startFrame = stoi(argv[3]); //throws if arg not valid
+    const int port = stoi(argv[5]);
     const int maxSize = 100;
 
+    bool stopService = false;
+    bool startService = false;
 
-    //using FStreamContext = Context< SessionQueues >;
-    //FStreamContext ctx;
+    using SessionQueuesPtr = shared_ptr< SessionQueues >;
+    using FStreamContext = wsp::Context< SessionQueuesPtr >;
+    using WSS = wsp::WebSocketService;
 
+    SessionQueuesPtr queue(new SessionQueues);
 
+    auto fileService = async(launch::async,
+                             ReadFileService,
+                             path,
+                             prefix,
+                             startFrame,
+                             suffix,
+                             cref(startService),
+                             cref(stopService));
 
-    //Start file reading service, passing reference to queue to store files
-    //queue has a max size so service blocks until queue is not full
+    WSS ws;
+    ws.Init(port, nullptr, nullptr,
+            FStreamContext(queue),
+            WSS::Entry< FileStreamService, WSS::ASYNC_REP("fstream"));
+    ws.StartLoop(1000, 
+                 [stopService](){return !stopService;});
+    return 0;
 }
-
 
