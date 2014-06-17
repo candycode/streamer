@@ -7,6 +7,9 @@
 #include <mutex>
 #include <memory>
 #include <condition_variable>
+#include <thread>
+#include <fstream>
+#include <chrono>
 
 using namespace std;
 
@@ -73,7 +76,41 @@ private:
     SessionToQueue stoq_;
     mutex mutex_;
 };
-
+//------------------------------------------------------------------------------
+///@todo consider adding a name filter (0001 -> 1) 
+///and a content filter (double array, color map -> turbojpeg -> jpeg)
+void ReadFileService(string path,
+                     string prefix,
+                     int startFrame,
+                     const string& suffix,
+                     bool& stopService,
+                     SessionQueues& q) {
+    if(path.size() < 1) throw logic_error("Invalid  path size");
+    if(path[path.size()-1] != '/') path += '/';
+    prefix = path + prefix;
+    int retries = 5;//@todo: make it a parameter; use negative (-1) for infinite
+    int throttleInterval = 1;
+    int retryInterval = 2;
+    while(!stopService && retries != 0) {
+        const string fname = prefix + to_string(startFrame) + suffix;
+        ifstream in(fname, std::ifstream::in
+                    | std::ifstream::binary);
+        if(!in) {
+            --retries;
+            this_thread::sleep_for(chrono::seconds(retryInterval));
+            continue;
+        }
+        in.seekg(0, ios::end);
+        const size_t fileSize = in.tellg();
+        in.seekg(0, ios::beg);
+        shared_ptr< File > buf(new File(fileSize));
+        in.read(&buf->front(), buf->size());
+        q.Put(buf);
+        ++startFrame;
+        this_thread::sleep_for(chrono::seconds(throttleInterval));
+    }
+    if(retries == 0) throw logic_error("No file");
+}
 //------------------------------------------------------------------------------
 int main(int argc, char** argv) {
     if(argc != 5) {
@@ -87,16 +124,15 @@ int main(int argc, char** argv) {
     const string suffix = argv[4];
     const int startFrame = stoi(argv[3]); //throws if arg not valid
     const int maxSize = 100;
-    
-    FileReadService fs(maxSize, path, prefix, startFrame, suffix);
-    
-    BrokerService broker(ref(fs), ref(sendQueues));
 
-    fs.Start();
-    broker.Start();
+
+    //using FStreamContext = Context< SessionQueues >;
+    //FStreamContext ctx;
+
+
 
     //Start file reading service, passing reference to queue to store files
     //queue has a max size so service blocks until queue is not full
-
+}
 
 
