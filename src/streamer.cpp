@@ -10,9 +10,12 @@
 #include <thread>
 #include <fstream>
 #include <chrono>
+#include <future>
+#include <functional>
 
 #include "../websocketplus/src/WebSocketService.h"
 #include "../websocketplus/src/Context.h"
+#include "../websocketplus/src/examples/SessionService.h"
 
 using namespace std;
 
@@ -38,6 +41,11 @@ public:
         queue_.pop_back();
         return e;
     }
+    bool Empty() const {
+        std::lock_guard< std::mutex > guard(mutex_);
+        const bool e = queue_.empty();
+        return e;
+    }
     friend class Executor; //to allow calls to Clear  
 private:
     void Clear() { queue_.clear(); }    
@@ -54,10 +62,13 @@ using SessionToQueue = unordered_map< const void*, shared_ptr< FileQueue > >;
 //------------------------------------------------------------------------------
 class SessionQueues {
 public:
-    void Map(const void* user, int queueSize = -1 /*not used*/) {
+    shared_ptr< FileQueue >
+    Map(const void* user, int queueSize = -1 /*not used*/) {
         std::lock_guard< std::mutex > guard(mutex_);
         if(stoq_.find(user) != stoq_.end()) Remove(user);
-        stoq_[user] = shared_ptr< FileQueue >(new FileQueue());
+            shared_ptr< FileQueue > q(new FileQueue());
+        stoq_[user] = q;
+        return q;
     }
     void Remove(const void* user) {
         std::lock_guard< std::mutex > guard(mutex_);
@@ -70,7 +81,7 @@ public:
     }
     shared_ptr< FileQueue > Get(const void* user) {
         std::lock_guard< std::mutex > guard(mutex_);
-        if(stoq_.find(user) == stoq_.end()) 
+        if(stoq_.find(user) == stoq_.end())
             throw std::range_error("Missing user session");
         shared_ptr< FileQueue > q = stoq_.find(user)->second;
         return q;
@@ -78,6 +89,75 @@ public:
 private:
     SessionToQueue stoq_;
     mutex mutex_;
+};
+//------------------------------------------------------------------------------
+class FileStreamingService 
+    : public SessionService< wsp::Context< shared_ptr< SessionQueues  > > > {
+
+    using Context = wsp::Context< shared_ptr< SessionQueues > >;
+
+public:
+
+    using DataFrame = SessionService::DataFrame;
+    FileStreamingService(Context* c) :
+     SessionService(c), ctx_(c) {
+        //the internal shared ptr counter is synchronized, so
+        //no problem if multiple threads execute the following line
+        //concurrently
+        shared_ptr< SessionQueues > q = ctx_->GetServiceData();
+        queue_ = q->Map(this);
+        InitDataFrame();
+    }
+    bool Data() const override {
+        if(df_.frameEnd < df_.bufferEnd) return true;
+        else {
+            InitDataFrame();
+            return false;
+        }
+    }
+    //return data frame and update frame end
+    const DataFrame& Get(int requestedChunkLength) {
+        if(df_.frameEnd < df_.bufferEnd) {
+           //frameBegin *MUST* be updated in the UpdateOutBuffer method
+           //because in case the consumed data is less than requestedChunkLength
+           df_.frameEnd += min((ptrdiff_t) requestedChunkLength,
+                               df_.bufferEnd - df_.frameEnd);
+        } else {
+           InitDataFrame();
+        }
+        return df_;
+    }
+    //update frame begin/end
+    void UpdateOutBuffer(int bytesConsumed) {
+        df_.frameBegin += bytesConsumed;
+        df_.frameEnd = df_.frameBegin;
+    }
+    //streaming: always in send mode, no receive
+    bool Sending() const override { return true; }
+    void Put(void* p, size_t len, bool done) override {
+        throw logic_error("Put is not implemented");
+    }
+    std::chrono::duration< double >
+    MinDelayBetweenWrites() const {
+        return std::chrono::duration< double >(0.0);
+    }
+private:
+    void InitDataFrame() const {
+        buffer_.reset();
+        df_ = DataFrame(); //reset 
+        if(queue_->Empty()) return;
+        buffer_ = queue_->Pop();
+        df_.bufferBegin = &buffer_->front();
+        df_.bufferEnd = df_.bufferBegin + buffer_->size();
+        df_.frameBegin = df_.bufferBegin;
+        df_.frameEnd = df_.frameBegin;
+        df_.binary = true;
+    }
+private:
+    mutable DataFrame df_;
+    mutable Context* ctx_ = nullptr;
+    mutable shared_ptr< FileQueue > queue_;
+    mutable shared_ptr< File > buffer_;
 };
 //------------------------------------------------------------------------------
 ///@todo consider adding a name filter (0001 -> 1) 
@@ -147,12 +227,13 @@ int main(int argc, char** argv) {
                              startFrame,
                              suffix,
                              cref(startService),
-                             cref(stopService));
+                             cref(stopService),
+                             ref(*queue));
 
     WSS ws;
     ws.Init(port, nullptr, nullptr,
             FStreamContext(queue),
-            WSS::Entry< FileStreamService, WSS::ASYNC_REP("fstream"));
+            WSS::Entry< FileStreamingService, WSS::ASYNC_REP("fstream"));
     ws.StartLoop(1000, 
                  [stopService](){return !stopService;});
     return 0;
