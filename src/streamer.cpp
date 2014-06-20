@@ -51,7 +51,7 @@ private:
     void Clear() { queue_.clear(); }    
 private:
     std::deque< T > queue_;
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     std::condition_variable cond_;
 };
 //------------------------------------------------------------------------------
@@ -233,7 +233,7 @@ int main(int argc, char** argv) {
     WSS ws;
     ws.Init(port, nullptr, nullptr,
             FStreamContext(queue),
-            WSS::Entry< FileStreamingService, WSS::ASYNC_REP("fstream"));
+            WSS::Entry< FileStreamingService, WSS::ASYNC_REP >("fstream"));
     ws.StartLoop(1000, 
                  [stopService](){return !stopService;});
     return 0;
