@@ -46,7 +46,6 @@ public:
         const bool e = queue_.empty();
         return e;
     }
-    friend class Executor; //to allow calls to Clear  
 private:
     void Clear() { queue_.clear(); }    
 private:
@@ -56,8 +55,7 @@ private:
 };
 //------------------------------------------------------------------------------
 using File = vector< char >;
-//note: make File a const File
-using FileQueue = SyncQueue< shared_ptr< File > >;
+using FileQueue = SyncQueue< shared_ptr< const File > >;
 using SessionToQueue = unordered_map< const void*, shared_ptr< FileQueue > >;
 //------------------------------------------------------------------------------
 class SessionQueues {
@@ -157,7 +155,7 @@ private:
     mutable DataFrame df_;
     mutable Context* ctx_ = nullptr;
     mutable shared_ptr< FileQueue > queue_;
-    mutable shared_ptr< File > buffer_;
+    mutable shared_ptr< const File > buffer_;
 };
 //------------------------------------------------------------------------------
 ///@todo consider adding a name filter (0001 -> 1) 
