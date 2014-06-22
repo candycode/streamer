@@ -1,0 +1,151 @@
+<!--
+Websockets+ : C++11 server-side websocket library based on libwebsockets;
+              supports easy creation of services and built-in throttling
+Copyright (C) 2014  Ugo Varetto
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Lesser General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+-->
+<!DOCTYPE html>
+<html>
+   <head>
+       <meta charset="utf-8">
+       <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0px;
+            border: 0;
+            overflow: hidden; /*  Disable scrollbars */
+            display: block;  /* No floating content on sides */
+        }
+    </style>
+       <script type="text/javascript" src="event-handlers.js">
+       </script>
+       <script src=
+  "http://ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+       <script type="text/javascript">
+          
+          $(function() {
+              var websocket;
+              window.WebSocket = window.WebSocket || window.MozWebSocket;
+              var MIME_TYPE = "image/jpeg";
+              //var MIME_TYPE = "image/png";
+              //var MIME_TYPE = "image/webp"; //"image/webp" for Chrome only
+              //var MIME_TYPE = ""; //does work but get a warning in the console
+              var out = $("[name='output']");
+              var bytes = $("[name='bytes']");
+              var img = new Image();
+              var blob = new Blob( [], { type: MIME_TYPE } );
+              var urlCreator = window.URL || window.webkitURL;
+              var imageUrl;
+              var canvas = document.querySelector( "#canvas" );
+              var WIDTH = 1920;
+              var HEIGHT = 1080;
+              var context = canvas.getContext('2d');
+              var maintainAspectRatio = true;
+              var ratio = 1080 / 1920;
+              var firstFrame = true;
+                              
+              function resizeCanvas() {
+                  // var l = (window.innerWidth - canvas.width) / 2;
+                  // var t = (window.innerHeight - canvas.height) / 2;
+                  // if(l >= 0)
+                  //   canvas.style.left = l + "px";  
+                  // if(t >= 0)
+                  //   canvas.style.top = t + "px";  
+                  //sendResizeEvent is added to window from within the
+                  //initEvents function
+                  sendResizeEvent(window.innerWidth, window.innerHeight);
+              }
+              img.onload = function() {
+                canvas.width = canvas.width 
+                  == img.width ? canvas.width : img.width;
+                canvas.height = canvas.height
+                  == img.height ? canvas.height : img.height;
+                if(firstFrame) {
+                  firstFrame = false;
+                  resizeCanvas();
+                  return;  
+                }  
+                context.drawImage(img, 0, 0);
+              }  
+              var proto = location.protocol;
+              var hostname = "localhost";
+              if(proto != "file:") hostname = location.hostname;
+              var WSURL = "ws://" + hostname + ":5000";
+              websocket = new WebSocket(WSURL, 'fstream');
+              websocket.binaryType = "arraybuffer";
+             
+              while(eventScriptLoaded == undefined);
+              initEvents(canvas, websocket); 
+
+              window.addEventListener('resize',resizeCanvas, true);  
+
+              websocket.onopen = function () {
+                  $('h1').css('color', 'green');
+              };
+
+              websocket.onerror = function (e) {
+                $('h1').css('color', 'red');
+                console.log(e);
+              };
+              var start = performance.now();
+              var elapsed = 0;
+              var frames = 0;
+              websocket.onmessage = function (e) {
+                if(imageUrl)
+                  urlCreator.revokeObjectURL(imageUrl);
+                if(!e) return;
+                if(!e.data) return;
+                if(e.data.byteLength < 1) return;
+                frames++;
+                elapsed = performance.now() - start;
+                bytes.text(e.data.byteLength);
+                out.text((1000 * frames / elapsed).toFixed(0));
+                blob = new Blob([e.data], {type: MIME_TYPE});
+                if(!blob) return;
+                imageUrl = urlCreator.createObjectURL( blob );
+                if(!imageUrl) return;
+                img.src = imageUrl;
+              };
+               
+           });
+
+       </script>
+        <style>
+       body{
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        -khtml-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+       }
+       </style>
+       </head>
+   <body>
+    <div style="margin-left: auto; margin-right: auto">
+      <canvas id="canvas" 
+       style="z-index: -1; position: absolute; top: 0; left: 0">
+      </canvas>
+      <div id="gui"
+           style="color: red; font-size: 200%; position: absolute; top: 0">
+         <h1>WebSockets stream test</h1>
+         <div>Frame/s: <span name="output"></span></div>
+         <div>Size: <span name="bytes"></span> bytes</div>
+      </div>
+    </div>
+   </body>
+</html>
+
