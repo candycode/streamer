@@ -163,6 +163,7 @@ private:
 void ReadFileService(string path,
                      string prefix,
                      int startFrame,
+                     int period,
                      const string& suffix,
                      const bool& startService, 
                      const bool& stopService,
@@ -173,6 +174,8 @@ void ReadFileService(string path,
     int retries = 5;//@todo: make it a parameter; use negative (-1) for infinite
     int throttleInterval = 1;
     int retryInterval = 2;
+    //make sure all the writes have already happened
+    atomic_thread_fence(memory_order_acquire);
     while(!startService); //wait for a start request
     while(!stopService && retries != 0) {
         const string fname = prefix + to_string(startFrame) + suffix;
@@ -189,40 +192,44 @@ void ReadFileService(string path,
         shared_ptr< File > buf(new File(fileSize));
         in.read(&buf->front(), buf->size());
         q.Put(buf);
-        ++startFrame;
+        startFrame = (startFrame + 1) % period;
         this_thread::sleep_for(chrono::seconds(throttleInterval));
     }
     if(retries == 0) throw logic_error("No file");
 }
 //------------------------------------------------------------------------------
 int main(int argc, char** argv) {
-    if(argc != 6) {
+    if(argc != 7) {
         std::cout << "usage: " 
                   << argv[0]
-                  << " <path> <prefix> <start frame #> <suffix> <port>\n";
+                  << " <path> <prefix> <start frame #> <period>"
+                     " <suffix> <port>\n";
         return 1;
     }
     const string path = argv[1];
     const string prefix = argv[2];
-    const string suffix = argv[4];
+    const string suffix = argv[5];
     const int startFrame = stoi(argv[3]); //throws if arg not valid
-    const int port = stoi(argv[5]);
+    const int port = stoi(argv[6]);
+    const int period = stoi(argv[4]);
     const int maxSize = 100;
 
     bool stopService = false;
-    bool startService = false;
+    bool startService = true; //start immediately
+    atomic_thread_fence(memory_order_release);
 
     using SessionQueuesPtr = shared_ptr< SessionQueues >;
     using FStreamContext = wsp::Context< SessionQueuesPtr >;
     using WSS = wsp::WebSocketService;
 
     SessionQueuesPtr queue(new SessionQueues);
-
+   
     auto fileService = async(launch::async,
                              ReadFileService,
                              path,
                              prefix,
                              startFrame,
+                             period,
                              suffix,
                              cref(startService),
                              cref(stopService),
