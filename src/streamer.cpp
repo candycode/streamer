@@ -1,3 +1,10 @@
+//Author: Ugo Varetto
+//File streaming service: wait for and stream content of files to clients over websockets
+
+// clang++ -std=c++11 -I ../websocketplus/src -I /usr/local/libwebsockets/include  \
+// ../src/streamer.cpp ../websocketplus/src/WebSocketService.cpp \
+// -L /usr/local/libwebsockets/lib -lwebsockets
+
 #include <string>
 #include <iostream>
 #include <vector>
@@ -64,7 +71,7 @@ public:
     Map(const void* user, int queueSize = -1 /*not used*/) {
         std::lock_guard< std::mutex > guard(mutex_);
         if(stoq_.find(user) != stoq_.end()) Remove(user);
-            shared_ptr< FileQueue > q(new FileQueue());
+        shared_ptr< FileQueue > q(new FileQueue());
         stoq_[user] = q;
         return q;
     }
