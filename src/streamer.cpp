@@ -140,7 +140,7 @@ public:
     //streaming: always in send mode, no receive
     bool Sending() const override { return true; }
     void Put(void* p, size_t len, bool done) override {
-        throw logic_error("Put is not implemented");
+       throw logic_error("Put is not implemented");
     }
     std::chrono::duration< double >
     MinDelayBetweenWrites() const {
